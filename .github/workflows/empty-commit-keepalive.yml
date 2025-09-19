@@ -1,0 +1,40 @@
+name: 单独分支空提交保活
+
+on:
+  schedule:
+    - cron: "0 9 1 * *" # 每月 1 日
+  workflow_dispatch: {}   # 支持手动触发，方便测试
+
+permissions:
+  contents: write   # 需要写权限来 push
+
+env:
+  BRANCH_NAME: heartbeat   # 目标分支名，可修改
+
+jobs:
+  empty-commit-keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Init empty repo
+        run: |
+          # 初始化一个全新的 git 仓库，不依赖 actions/checkout
+          git init .
+          # 设置提交作者为 GitHub Actions 官方 bot
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # 配置远端，使用 GitHub 自动注入的 GITHUB_TOKEN
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+
+      - name: Create orphan branch
+        run: |
+          # 创建孤儿分支，没有历史和文件
+          git checkout --orphan "${BRANCH_NAME}"
+          # 空白提交
+          git commit --allow-empty -m "chore(heartbeat): monthly empty commit $(date -u +%Y-%m-%d)"
+          # 确认分支名正确
+          git branch -M "${BRANCH_NAME}"
+
+      - name: Push (force overwrite)
+        run: |
+          # 强制推送，无需 checkout，workflow 最简单
+          git push -f origin "${BRANCH_NAME}"

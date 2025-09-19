@@ -90,16 +90,6 @@ jobs:
           path: .last_success_date
           key: last-success-marker
 
-      - name: 空提交保持活跃
-        if: success() && github.event_name == 'schedule'
-        run: |
-          git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-          git config --local user.name "${{ github.actor }}"
-          git remote set-url origin https://${{ github.actor }}:${{ github.token }}@github.com/${{ github.repository }}
-          git pull --rebase --autostash
-          git commit --allow-empty -m "CHORE: 保持运行.."
-          git push
-
       - name: 清理旧的工作流记录
         uses: Mattraks/delete-workflow-runs@main
         if: always()
