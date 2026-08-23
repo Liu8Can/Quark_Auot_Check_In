@@ -106,7 +106,13 @@ GitHub Actions 的计划任务可能延迟数分钟到数十分钟，这是平�
 
 本项目基于 [BNDou/Auto_Check_In](https://github.com/BNDou/Auto_Check_In) 的夸克签到功能修改而来。
 
-感谢 [Spectrollay](https://github.com/Spectrollay) 和 [haozihong](https://github.com/haozihong) 对工作流的贡献。
+## 🙏 贡献者
+
+感谢以下贡献者对项目的改进：
+
+- [@Spectrollay](https://github.com/Spectrollay) — 优化签到工作流与自动化逻辑（[#1](https://github.com/Liu8Can/Quark_Auot_Check_In/pull/1)）
+- [@haozihong](https://github.com/haozihong) — 将保活提交迁移至独立分支，保持主分支历史整洁（[#4](https://github.com/Liu8Can/Quark_Auot_Check_In/pull/4)）
+- [@HSSkyBoy](https://github.com/HSSkyBoy) — 优化签到流程结构与按日期缓存机制（[#16](https://github.com/Liu8Can/Quark_Auot_Check_In/pull/16)）
 
 📧 联系邮箱：[liucan01234@gmail.com](mailto:liucan01234@gmail.com)
 
