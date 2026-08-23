@@ -1,189 +1,247 @@
-import os 
-import re 
-import sys 
-import requests 
+"""Quark cloud-drive daily sign-in.
 
-cookie_list = os.getenv("COOKIE_QUARK").split('\n|&&')
+The script accepts one or more account entries from ``COOKIE_QUARK``. Accounts
+may be separated by a newline or ``&&``. Both the legacy kps/sign/vcode format
+and the newer captured-URL format are supported.
+"""
 
-# 替代 notify 功能
-def send(title, message):
-    print(f"{title}: {message}")
+from __future__ import annotations
 
-# 获取环境变量 
-def get_env(): 
-    # 判断 COOKIE_QUARK是否存在于环境变量 
-    if "COOKIE_QUARK" in os.environ: 
-        # 读取系统变量以 \n 或 && 分割变量 
-        cookie_list = re.split('\n|&&', os.environ.get('COOKIE_QUARK')) 
-    else: 
-        # 标准日志输出 
-        print('❌未添加COOKIE_QUARK变量') 
-        send('夸克自动签到', '❌未添加COOKIE_QUARK变量') 
-        # 脚本退出 
-        sys.exit(0) 
+import os
+import re
+import sys
+from typing import Callable
+from urllib.parse import parse_qs, urlparse
 
-    return cookie_list 
+import requests
 
-# 其他代码...
+
+INFO_URL = "https://drive-m.quark.cn/1/clouddrive/capacity/growth/info"
+SIGN_URL = "https://drive-m.quark.cn/1/clouddrive/capacity/growth/sign"
+REQUIRED_PARAMS = ("kps", "sign", "vcode")
+
+
+class ConfigError(ValueError):
+    """Raised when COOKIE_QUARK is missing or malformed."""
+
+
+class QuarkAPIError(RuntimeError):
+    """Raised when the Quark API cannot complete a sign-in operation."""
+
+
+def send(title: str, message: str) -> None:
+    """Print a notification-compatible summary."""
+
+    print(f"{title}:\n{message}")
+
+
+def split_account_entries(raw_value: str | None) -> list[str]:
+    """Split COOKIE_QUARK into non-empty account entries."""
+
+    if not raw_value or not raw_value.strip():
+        raise ConfigError("未配置 COOKIE_QUARK，或变量内容为空")
+
+    entries = [entry.strip() for entry in re.split(r"\r?\n|&&", raw_value)]
+    entries = [entry for entry in entries if entry]
+    if not entries:
+        raise ConfigError("COOKIE_QUARK 中没有可用的账号配置")
+    return entries
+
+
+def extract_params(url: str) -> dict[str, str]:
+    """Extract the credentials used by the mobile growth API from a URL."""
+
+    query = parse_qs(urlparse(url).query, keep_blank_values=True)
+    return {name: query.get(name, [""])[0] for name in REQUIRED_PARAMS}
+
+
+def parse_account(entry: str, index: int) -> dict[str, str]:
+    """Parse and validate one account entry."""
+
+    account: dict[str, str] = {}
+    for field in entry.split(";"):
+        field = field.strip()
+        if not field:
+            continue
+        if "=" not in field:
+            raise ConfigError(f"第 {index} 个账号存在无效字段：{field}")
+        key, value = field.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ConfigError(f"第 {index} 个账号存在空字段名")
+        account[key] = value.strip()
+
+    if "url" in account:
+        for key, value in extract_params(account["url"]).items():
+            account.setdefault(key, value)
+
+    missing = [key for key in REQUIRED_PARAMS if not account.get(key)]
+    if missing:
+        raise ConfigError(
+            f"第 {index} 个账号缺少必要参数：{', '.join(missing)}"
+        )
+
+    account.setdefault("user", f"账号{index}")
+    return account
+
+
+def _api_error_message(payload: dict, fallback: str) -> str:
+    message = payload.get("message") or payload.get("msg")
+    code = payload.get("code")
+    if message:
+        return str(message)
+    if code is not None:
+        return f"{fallback}（code={code}）"
+    return fallback
+
 
 class Quark:
-    '''
-    Quark类封装了签到、领取签到奖励的方法
-    '''
-    def __init__(self, user_data):
-        '''
-        初始化方法
-        :param user_data: 用户信息，用于后续的请求
-        '''
-        self.param = user_data
+    """Small client for Quark's mobile growth endpoints."""
 
-    def convert_bytes(self, b):
-        '''
-        将字节转换为 MB GB TB
-        :param b: 字节数
-        :return: 返回 MB GB TB
-        '''
+    def __init__(
+        self,
+        account: dict[str, str],
+        session: requests.Session | None = None,
+        timeout: int = 20,
+    ) -> None:
+        self.account = account
+        self.session = session or requests.Session()
+        self.timeout = timeout
+
+    @staticmethod
+    def convert_bytes(value: int | float) -> str:
         units = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-        i = 0
-        while b >= 1024 and i < len(units) - 1:
-            b /= 1024
-            i += 1
-        return f"{b:.2f} {units[i]}"
+        size = float(value)
+        unit_index = 0
+        while size >= 1024 and unit_index < len(units) - 1:
+            size /= 1024
+            unit_index += 1
+        return f"{size:.2f} {units[unit_index]}"
 
-    def get_growth_info(self):
-        '''
-        获取用户当前的签到信息
-        :return: 返回一个字典，包含用户当前的签到信息
-        '''
-        url = "https://drive-m.quark.cn/1/clouddrive/capacity/growth/info"
-        querystring = {
+    def _params(self) -> dict[str, str]:
+        return {
             "pr": "ucpro",
             "fr": "android",
-            "kps": self.param.get('kps'),
-            "sign": self.param.get('sign'),
-            "vcode": self.param.get('vcode')
+            **{key: self.account[key] for key in REQUIRED_PARAMS},
         }
-        response = requests.get(url=url, params=querystring).json()
-        #print(response)
-        if response.get("data"):
-            return response["data"]
-        else:
-            return False
 
-    def get_growth_sign(self):
-        '''
-        获取用户当前的签到信息
-        :return: 返回一个字典，包含用户当前的签到信息
-        '''
-        url = "https://drive-m.quark.cn/1/clouddrive/capacity/growth/sign"
-        querystring = {
-            "pr": "ucpro",
-            "fr": "android",
-            "kps": self.param.get('kps'),
-            "sign": self.param.get('sign'),
-            "vcode": self.param.get('vcode')
-        }
-        data = {"sign_cyclic": True}
-        response = requests.post(url=url, json=data, params=querystring).json()
-        #print(response)
-        if response.get("data"):
-            return True, response["data"]["sign_daily_reward"]
-        else:
-            return False, response["message"]
+    def _request(self, method: str, url: str, **kwargs) -> dict:
+        try:
+            response = self.session.request(
+                method, url, timeout=self.timeout, **kwargs
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except requests.Timeout as exc:
+            raise QuarkAPIError("请求夸克接口超时") from exc
+        except requests.RequestException as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            detail = f"HTTP {status}" if status else type(exc).__name__
+            raise QuarkAPIError(f"请求夸克接口失败（{detail}）") from exc
+        except ValueError as exc:
+            raise QuarkAPIError("夸克接口返回了无法解析的数据") from exc
 
-    def queryBalance(self):
-        '''
-        查询抽奖余额
-        '''
-        url = "https://coral2.quark.cn/currency/v1/queryBalance"
-        querystring = {
-            "moduleCode": "1f3563d38896438db994f118d4ff53cb",
-            "kps": self.param.get('kps'),
-        }
-        response = requests.get(url=url, params=querystring).json()
-        # print(response)
-        if response.get("data"):
-            return response["data"]["balance"]
-        else:
-            return response["msg"]
+        if not isinstance(payload, dict):
+            raise QuarkAPIError("夸克接口返回格式异常")
+        return payload
 
-    def do_sign(self):
-        '''
-        执行签到任务
-        :return: 返回一个字符串，包含签到结果
-        '''
-        log = ""
-        # 每日领空间
+    def get_growth_info(self) -> dict:
+        payload = self._request("GET", INFO_URL, params=self._params())
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise QuarkAPIError(_api_error_message(payload, "获取成长信息失败"))
+        return data
+
+    def get_growth_sign(self) -> int | float:
+        payload = self._request(
+            "POST",
+            SIGN_URL,
+            params=self._params(),
+            json={"sign_cyclic": True},
+        )
+        data = payload.get("data")
+        if not isinstance(data, dict) or "sign_daily_reward" not in data:
+            raise QuarkAPIError(_api_error_message(payload, "签到失败"))
+        return data["sign_daily_reward"]
+
+    def do_sign(self) -> str:
         growth_info = self.get_growth_info()
-        if growth_info:
-            log += (
-                f" {'88VIP' if growth_info['88VIP'] else '普通用户'} {self.param.get('user')}\n"
-                f"💾 网盘总容量：{self.convert_bytes(growth_info['total_capacity'])}，"
-                f"签到累计容量：")
-            if "sign_reward" in growth_info['cap_composition']:
-                log += f"{self.convert_bytes(growth_info['cap_composition']['sign_reward'])}\n"
-            else:
-                log += "0 MB\n"
-            if growth_info["cap_sign"]["sign_daily"]:
-                log += (
-                    f"✅ 签到日志: 今日已签到+{self.convert_bytes(growth_info['cap_sign']['sign_daily_reward'])}，"
-                    f"连签进度({growth_info['cap_sign']['sign_progress']}/{growth_info['cap_sign']['sign_target']})\n"
-                )
-            else:
-                sign, sign_return = self.get_growth_sign()
-                if sign:
-                    log += (
-                        f"✅ 执行签到: 今日签到+{self.convert_bytes(sign_return)}，"
-                        f"连签进度({growth_info['cap_sign']['sign_progress'] + 1}/{growth_info['cap_sign']['sign_target']})\n"
-                    )
-                else:
-                    log += f"❌ 签到异常: {sign_return}\n"
+        cap_sign = growth_info.get("cap_sign")
+        if not isinstance(cap_sign, dict):
+            raise QuarkAPIError("成长信息中缺少 cap_sign 字段")
+
+        user = self.account["user"]
+        vip_label = "88VIP" if growth_info.get("88VIP") else "普通用户"
+        total_capacity = growth_info.get("total_capacity", 0)
+        composition = growth_info.get("cap_composition") or {}
+        accumulated = composition.get("sign_reward", 0)
+        progress = cap_sign.get("sign_progress", "?")
+        target = cap_sign.get("sign_target", "?")
+
+        lines = [
+            f"{vip_label} {user}",
+            f"💾 网盘总容量：{self.convert_bytes(total_capacity)}，"
+            f"签到累计容量：{self.convert_bytes(accumulated)}",
+        ]
+
+        if cap_sign.get("sign_daily"):
+            reward = cap_sign.get("sign_daily_reward", 0)
+            lines.append(
+                f"✅ 今日已签到 +{self.convert_bytes(reward)}，"
+                f"连签进度（{progress}/{target}）"
+            )
         else:
-            # log += f"❌ 签到异常: 获取成长信息失败\n"
-            raise Exception("❌ 签到异常: 获取成长信息失败")  # 适用于单账号情形，当 cookie 值失效后直接报错，方便通过 github action 的操作系统来进行提醒 如果你使用的是多账号签到的话，不要跟进此更新
+            reward = self.get_growth_sign()
+            next_progress = progress + 1 if isinstance(progress, int) else "?"
+            lines.append(
+                f"✅ 签到成功 +{self.convert_bytes(reward)}，"
+                f"连签进度（{next_progress}/{target}）"
+            )
 
-        return log
+        return "\n".join(lines)
 
 
-def main():
-    '''
-    主函数
-    :return: 返回一个字符串，包含签到结果
-    '''
-    msg = ""
-    global cookie_quark
-    cookie_quark = get_env()
+def main(
+    cookie_value: str | None = None,
+    quark_factory: Callable[[dict[str, str]], Quark] | None = None,
+) -> int:
+    """Run every configured account and return a process-compatible exit code."""
 
-    print("✅ 检测到共", len(cookie_quark), "个夸克账号\n")
-
-    i = 0
-    while i < len(cookie_quark):
-        # 获取user_data参数
-        user_data = {}  # 用户信息
-        for a in cookie_quark[i].replace(" ", "").split(';'):
-            if not a == '':
-                user_data.update({a[0:a.index('=')]: a[a.index('=') + 1:]})
-        # print(user_data)
-        # 开始任务
-        log = f"🙍🏻‍♂️ 第{i + 1}个账号"
-        msg += log
-        # 登录
-        log = Quark(user_data).do_sign()
-        msg += log + "\n"
-
-        i += 1
-
-    # print(msg)
+    print("----------夸克网盘开始签到----------")
+    if cookie_value is None:
+        cookie_value = os.getenv("COOKIE_QUARK")
+    quark_factory = quark_factory or Quark
 
     try:
-        send('夸克自动签到', msg)
-    except Exception as err:
-        print('%s\n❌ 错误，请查看运行日志！' % err)
+        entries = split_account_entries(cookie_value)
+    except ConfigError as exc:
+        print(f"❌ {exc}")
+        return 2
 
-    return msg[:-1]
+    print(f"✅ 检测到共 {len(entries)} 个夸克账号\n")
+    results: list[str] = []
+    failures = 0
+
+    for index, entry in enumerate(entries, start=1):
+        heading = f"🙍🏻‍♂️ 第 {index} 个账号"
+        try:
+            account = parse_account(entry, index)
+            result = quark_factory(account).do_sign()
+            results.append(f"{heading}\n{result}")
+        except (ConfigError, QuarkAPIError, KeyError, TypeError, ValueError) as exc:
+            failures += 1
+            results.append(f"{heading}\n❌ {exc}")
+        except Exception as exc:  # Keep later accounts running on unexpected errors.
+            failures += 1
+            results.append(f"{heading}\n❌ 未知错误：{type(exc).__name__}")
+
+    summary = "\n\n".join(results)
+    send("夸克自动签到", summary)
+    print(
+        f"\n----------执行完毕：成功 {len(entries) - failures}，失败 {failures}----------"
+    )
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    print("----------夸克网盘开始签到----------")
-    main()
-    print("----------夸克网盘签到完毕----------")
+    sys.exit(main())

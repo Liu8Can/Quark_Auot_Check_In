@@ -1,125 +1,113 @@
 # ⭐️ 夸克网盘自动签到
 
-![GitHub stars](https://img.shields.io/github/stars/Liu8Can/Quark_Auot_Check_In) ![GitHub forks](https://img.shields.io/github/forks/Liu8Can/Quark_Auot_Check_In) ![License](https://img.shields.io/github/license/Liu8Can/Quark_Auot_Check_In) ![Last Commit](https://img.shields.io/github/last-commit/Liu8Can/Quark_Auot_Check_In) ![GitHub Actions](https://github.com/Liu8Can/Quark_Auot_Check_In/actions/workflows/quark_signin.yml/badge.svg)
+![GitHub stars](https://img.shields.io/github/stars/Liu8Can/Quark_Auot_Check_In) ![GitHub forks](https://img.shields.io/github/forks/Liu8Can/Quark_Auot_Check_In) ![License](https://img.shields.io/github/license/Liu8Can/Quark_Auot_Check_In) ![Last Commit](https://img.shields.io/github/last-commit/Liu8Can/Quark_Auot_Check_In) ![GitHub Actions](https://github.com/Liu8Can/Quark_Auot_Check_In/actions/workflows/quark_signin.yml/badge.svg) ![CI](https://github.com/Liu8Can/Quark_Auot_Check_In/actions/workflows/ci.yml/badge.svg)
 
-🎉 **本项目实现了夸克网盘的自动签到功能**，通过 GitHub Actions 自动执行，领取每日签到奖励空间，让用户无需手动操作！
+通过 GitHub Actions 自动完成夸克网盘每日签到并领取空间奖励，支持单账号和多账号。
 
-> 🛑 **警告**：本项目遵循 [MIT 协议](https://opensource.org/licenses/MIT)。任何对项目的修改和发布必须保留原作者署名。
->
-> **本项目禁止传播，有缘人自会看到。给个星标再 fork 吧，求求了**
->
-> 本仓库严厉谴责 [2pacJay/Quark_Auot_Check_In](https://github.com/2pacJay/Quark_Auot_Check_In) 仓库 **抹除原作者署名权的行为**，该行为严重违反 MIT 协议，侵害开源精神！
+## 🚀 功能
 
----
+- 北京时间每天约 **09:00** 执行签到，**13:00** 进行失败兜底。
+- 当天所有账号成功后写入日期缓存，第二次任务自动跳过。
+- 多账号逐个执行；某个账号失败不会阻断其他账号。
+- 任何账号失败时工作流返回失败，并保留当天第二次重试机会。
+- 每月在独立的 `heartbeat` 分支生成保活提交，不污染 `main` 历史。
 
-## 🚀 功能简介
+## 📋 使用方法
 
-- **每日自动签到**：定时运行脚本完成每日签到，领取成长奖励。
-  - **新增：每日两次签到尝试**：分别在北京时间早上 9 点和下午 1 点左右尝试签到，增加成功率。
-  - **新增：防止重复签到**：脚本会记录当日成功签到状态，避免不必要的重复执行。
-  - **新增：随机延迟执行**：每次签到前加入随机延迟，模拟人工操作，降低被检测风险。
-- **GitHub Actions 托管**：一键配置后，脚本每天自动运行，实现真正的“一劳永逸”。
-  - **新增：自动保持仓库活跃**：通过空提交防止 GitHub因仓库不活跃而禁用 Actions。
-  - **新增：自动清理旧记录**：自动删除旧的 Workflow 运行记录，保持 Actions 页面整洁。
-- 本项目基于 BNDou大佬的项目中夸克网盘自动签到的子功能 https://github.com/BNDou/Auto_Check_In 修改而来
-- 感谢  [Spectrollay](https://github.com/Spectrollay) 对工作流的优化
-- 感谢  [haozihong ](https://github.com/Spectrollay) 对工作流的优化
+### 1. Fork 并启用 Actions
 
----
+Fork 本仓库后进入 **Actions** 页面。如果 GitHub 显示工作流尚未启用，请点击 **I understand my workflows, go ahead and enable them**。
 
-## 📋 使用指南
+工作流已经声明所需的最小权限：签到工作流仅使用 `contents: read`，保活工作流使用 `contents: write`。通常不需要手动把整个仓库的 Workflow permissions 改成读写权限；如果组织策略禁止保活分支写入，请联系组织管理员调整。
 
-### 1️⃣ Fork 项目
+### 2. 获取签到参数
 
-点击右上角的 `Fork` 按钮，将本项目复制到自己的 GitHub 仓库。
+使用手机抓包工具（例如 [ProxyPin](https://github.com/wanghongenpin/proxypin)）：
 
-### 2️⃣ 配置 Cookie 信息
+1. 开启 HTTPS 抓包后，在夸克 App 中进入网盘签到/领空间页面。
+2. 搜索请求地址：`https://drive-m.quark.cn/1/clouddrive/act/growth/reward`。
+3. 确认该 URL 的查询参数中包含 `kps`、`sign` 和 `vcode`。
+4. 复制完整 URL，并按下方格式保存。
 
-通过 GitHub Secrets 配置用户的 Cookie 信息，具体步骤如下：
+推荐格式：
 
-#### 🛠️ 获取 COOKIE_QUARK
+```text
+user=张三; url=https://drive-m.quark.cn/1/clouddrive/act/growth/reward?...&kps=abcdefg&sign=hijklmn&vcode=111111111;
+```
 
-使用手机抓包工具（小白推荐 [proxypin](https://github.com/wanghongenpin/proxypin)）获取 Cookie 信息：
+旧格式仍然兼容：
 
-1. 打开手机抓包工具，访问夸克网盘签到页。
-2. 找到接口 `https://drive-m.quark.cn/1/clouddrive/capacity/growth/info` 的请求信息。
-3. 复制请求中的参数：`kps`、`sign` 和 `vcode`。【初步测试发现这个 Key 的值有效期在两个月左右】
-4. 将参数整理为以下格式：
-   ```
-   user=张三; kps=abcdefg; sign=hijklmn; vcode=111111111;
-   ```
+```text
+user=张三; kps=abcdefg; sign=hijklmn; vcode=111111111;
+```
 
-   > `user` 字段为用户名，可随意填写。多个账户可用 **回车或 && 分隔**。
-   >
+`user` 只是日志中的账号备注，可以自行填写。参数具有账号操作权限，绝不要提交到代码、Issue 或公开截图中；如怀疑泄露，请立即在夸克 App 中退出登录并重新获取。
 
-#### 🔐 添加到 GitHub Secrets
+### 3. 配置 GitHub Secret
 
-1. 打开 Fork 后的仓库，进入 **Settings -> Secrets and variables -> Actions**。
-2. 点击 **Repository secrets** 分区下的 **New repository secret** 按钮。
-3. 创建名为 `COOKIE_QUARK` 的 Secret。
-4. 将整理好的 Cookie 信息粘贴到 "Secret" 输入框中并保存。
+进入 Fork 仓库的 **Settings → Secrets and variables → Actions → New repository secret**：
 
----
+- Name：`COOKIE_QUARK`
+- Secret：粘贴上一步整理的账号配置
 
-### 3️⃣ 启用 GitHub Actions 及设置权限
+多账号可以用换行分隔：
 
-1. 打开 Fork 后的仓库，进入 **Actions** 选项卡。如果看到黄色的提示条 "Workflows aren't right ....... enable them"，点击 **"I understand my workflows, go ahead and enable them"** 按钮启用 Actions。
-2. **重要：设置 Workflow 权限**
-   * 进入仓库的 **Settings -> Actions -> General** 页面。
-   * 在 "Workflow permissions" 部分，选择 **"Read and write permissions"**。
-   * 点击 "Save" 保存。
-   * **此步骤是必需的**，以便 Actions 能够执行“保持仓库活跃”（空提交）和“清理旧的工作流记录”等操作。
-3. 启用后，你会看到名为 `Quark签到` (或 `Quark Sign-in`) 的工作流已配置完成。
-4. 脚本将按预设时间（北京时间每日约 9:00 和 13:00）自动运行。
-   * **运行时间说明**：默认设置在北京时间上午 9 点和下午 1 点左右运行。由于 GitHub Actions 的计划任务调度机制，实际运行时间可能会有几分钟到几十分钟的延迟，这是正常现象。随机延迟的加入也会影响确切的启动时间。
-   * **执行逻辑**：脚本会先检查当天是否已成功签到。如果已签到，则跳过后续的签到操作。
+```text
+user=账号一; url=https://...;
+user=账号二; url=https://...;
+```
 
-### 4️⃣ 手动测试运行
+也可以使用 `&&` 分隔：
 
-1. 进入 **Actions** 选项卡，点击左侧的 `Quark签到` (或 `Quark Sign-in`) 工作流。
-2. 点击右侧的 **Run workflow** 按钮，然后再次点击绿色 **Run workflow** 按钮，手动触发任务以验证配置是否成功。
-3. 你可以点击运行中的 workflow 查看其执行日志和状态。
+```text
+user=账号一; url=https://...; && user=账号二; url=https://...;
+```
 
----
+### 4. 手动测试
+
+进入 **Actions → 夸克网盘每日签到 → Run workflow**。第一次运行会真实请求签到接口；当天全部账号已经成功后，再次运行将显示“今日已全部签到成功，跳过重复执行”。
+
+## 🔁 执行与重试逻辑
+
+1. 工作流按北京时间生成当天的缓存键。
+2. 如果缓存命中，签到相关步骤全部跳过。
+3. 如果没有命中，逐个处理 `COOKIE_QUARK` 中的账号。
+4. 所有账号成功或已签到时，保存当天成功标记。
+5. 任一账号配置错误、凭证失效或接口异常时，工作流失败且不保存标记，13:00 会再次尝试。
 
 ## ❓ 常见问题
 
-1. **签到失败**：
+### 提示“缺少必要参数”
 
-   * 确认 `COOKIE_QUARK` Secret 中的信息准确无误且格式正确。
-   * Cookie 可能已过期，请尝试重新抓取并更新 Secret。
-   * 检查 Actions 日志，看是否有具体的错误信息。
-2. **GitHub Actions 未生效或报错 `Permission denied` / `GH006`**：
+检查每个账号是否都包含 `kps`、`sign`、`vcode`，或者完整 URL 是否确实带有这三个查询参数。空行会自动忽略。
 
-   * 确保已按照【3️⃣ 启用 GitHub Actions 及设置权限】中的步骤启用了 Actions。
-   * **最常见原因：** 确保在仓库的 "Settings -> Actions -> General" 中，"Workflow permissions" 已设置为 **"Read and write permissions"**。如果权限不足，空提交和清理记录步骤会失败。
-   * 检查 Actions 运行日志，查看具体的错误信息。
-3. **Workflow 显示跳过 (Skipped)**：
+### 单账号正常，多账号失败
 
-   * 这是新版功能的正常行为。如果当天的第一次签到尝试（例如早上9点的任务）已经成功，那么下午1点的任务在检查时会发现已签到，从而跳过实际的签到步骤。你可以在 `check-if-already-signed` job 的日志中看到类似 "今天已成功签到，跳过执行" 的信息。
+请确认账号之间使用换行或 `&&` 分隔，并且每个账号都是一套完整参数。新版脚本会继续处理后续账号，并在日志中明确指出失败的是第几个账号。
 
----
+### 提示“获取成长信息失败”或“凭证失效”
+
+通常表示抓取的参数已经过期或不完整，请重新抓取并更新 `COOKIE_QUARK`。接口临时异常也会让工作流失败，但不会写入当日成功缓存，因此仍会保留第二次重试机会。
+
+### 定时任务没有准点运行
+
+GitHub Actions 的计划任务可能延迟数分钟到数十分钟，这是平台调度机制导致的正常现象。工作流还会加入最多 60 秒的随机延迟。
+
+### 保活分支为什么每月被强制更新
+
+`heartbeat` 是专门的孤儿分支，每月仅保留最新一条空提交，用于避免长期无活动的 Fork 被 GitHub 自动停用定时任务；它不会改动 `main`。
 
 ## ⚠️ 注意事项
 
 - 本项目仅供学习交流，请勿用于非法用途。
-- 如夸克网盘更新接口，需重新获取 Cookie 并调整代码（主要是 `checkIn_Quark.py` 脚本，Workflow 通常无需修改）。
-- 频繁手动触发可能会被目标服务限制，请谨慎操作。
+- 夸克接口和参数可能随官方更新而变化；出现集中失效时请先查看 Issues。
+- 频繁手动触发可能被服务限制，请谨慎操作。
+- 本项目采用 MIT License。复制和分发时请保留原作者版权及许可声明。
 
----
+本项目基于 [BNDou/Auto_Check_In](https://github.com/BNDou/Auto_Check_In) 的夸克签到功能修改而来。
 
-## 📜 免责声明
+感谢 [Spectrollay](https://github.com/Spectrollay) 和 [haozihong](https://github.com/haozihong) 对工作流的贡献。
 
-本项目为开源项目，作者不对任何因使用本项目产生的后果负责。
+📧 联系邮箱：[liucan01234@gmail.com](mailto:liucan01234@gmail.com)
 
----
-
-### 🛡️ 防盗声明
-
-本项目严格遵守 MIT 协议，修改和分发时必须保留原作者署名及协议声明。
-若发现违反行为，请通过以下方式联系：
-📧 Email: [liucan01234@gmail.com](mailto:liucan01234@gmail.com)
-
----
-
-🎉 **欢迎提交 PR 和 Star 支持项目发展！**
+欢迎提交 Issue、PR 和 Star 支持项目发展。
